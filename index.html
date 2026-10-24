@@ -364,10 +364,15 @@ window.HeroGPU = function(hero, onFps){
         for(int i=0;i<4;i++){ vec2 q = uv - uEm[i].xy; q.x *= uAsp; float g = exp(-dot(q,q)/uEm[i].z); v.y += g*uEm[i].w*0.22; }
         o = vec4(v*0.99,0.0,1.0); }`,
     emit: `${HEAD} uniform sampler2D uDye; uniform vec4 uEm[4]; uniform float uAsp, uT;
-      float h(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }
+      float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+      float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
+      float fbm(vec2 p){ float a=0.5, s=0.0; for(int i=0;i<4;i++){ s+=a*vn(p); p=p*2.03+vec2(1.7,9.2); a*=0.5; } return s; }
       void main(){ vec2 d = texture(uDye,uv).rg;
         for(int i=0;i<4;i++){ vec2 q = uv - uEm[i].xy; q.x *= uAsp; float g = exp(-dot(q,q)/uEm[i].z);
-          float n = h(uv*vec2(311.0,173.0)+uT); d.r += g*uEm[i].w*0.2*(0.5+n); d.g += g*uEm[i].w*0.09*n; }
+          float n = hash(uv*vec2(311.0,173.0)+uT); d.r += g*uEm[i].w*0.2*(0.5+n); d.g += g*uEm[i].w*0.09*n; }
+        float bed = smoothstep(0.05, 0.0, uv.y);
+        float bn = fbm(vec2(uv.x*uAsp*9.0, uT*1.4));
+        d.r += bed*0.045*max(0.0, bn*2.2-0.85); d.g += bed*0.03*bn;
         o = vec4(d,0.0,1.0); }`,
     div: `${HEAD} uniform sampler2D uVel; uniform vec2 uTx;
       void main(){ float L=texture(uVel,uv-vec2(uTx.x,0)).x, R=texture(uVel,uv+vec2(uTx.x,0)).x, B=texture(uVel,uv-vec2(0,uTx.y)).y, T=texture(uVel,uv+vec2(0,uTx.y)).y;
@@ -392,12 +397,26 @@ window.HeroGPU = function(hero, onFps){
         float n = (texture(uW,uv-vec2(uTx.x,0)).r + texture(uW,uv+vec2(uTx.x,0)).r + texture(uW,uv-vec2(0,uTx.y)).r + texture(uW,uv+vec2(0,uTx.y)).r)*0.5 - s.g;
         n *= 0.982; vec2 q = uv-uDrop.xy; q.x*=uAsp; n += uDrop.w*exp(-dot(q,q)/uDrop.z);
         o = vec4(n, s.r, 0, 1); }`,
-    show: `${HEAD} uniform sampler2D uDye, uW; uniform float uHz; uniform vec2 uWTx, uDTx;
-      vec2 bd(vec2 p){ vec2 a=vec2(0); for(int j=-1;j<=1;j++)for(int i=-1;i<=1;i++){ a+=texture(uDye,p+vec2(float(i),float(j))*uDTx*1.6).rg; } return a/9.0; }
+    show: `${HEAD} uniform sampler2D uDye, uW; uniform float uHz, uT, uAsp; uniform vec2 uWTx, uDTx;
+      float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+      float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
+      float fbm(vec2 p){ float a=0.5, s=0.0; for(int i=0;i<4;i++){ s+=a*vn(p); p=p*2.03+vec2(1.7,9.2); a*=0.5; } return s; }
+      vec2 bd(vec2 p){ vec2 e=uDTx*0.5; return 0.25*(texture(uDye,p+vec2(e.x,e.y)).rg+texture(uDye,p+vec2(-e.x,e.y)).rg+texture(uDye,p+vec2(e.x,-e.y)).rg+texture(uDye,p+vec2(-e.x,-e.y)).rg); }
       vec3 fire(vec2 d){ float t=clamp(d.r*0.55,0.0,1.0), k=clamp(d.g*0.6,0.0,1.0);
-        return vec3(12.0+243.0*min(1.0,t*1.4), 13.0+180.0*t*t+30.0*k*(1.0-t), 16.0+60.0*pow(t,4.0)+18.0*k*(1.0-t))/255.0; }
+        vec3 c = vec3(12.0+243.0*min(1.0,t*1.4), 13.0+180.0*t*t+30.0*k*(1.0-t), 16.0+60.0*pow(t,4.0)+18.0*k*(1.0-t))/255.0;
+        return c + vec3(1.0,0.9,0.7)*smoothstep(0.7,1.0,t)*0.28; }
+      vec2 flame(vec2 du){
+        float rise = uT*1.7;
+        vec2 np = vec2(du.x*uAsp*7.0, du.y*5.0 - rise);
+        float n1 = fbm(np), n2 = vn(np*2.3 + vec2(3.1, -rise*1.3));
+        vec2 warp = vec2(n1-0.5, (n2-0.5)*0.5) * 0.04 * (0.35+du.y*1.3);
+        vec2 d = bd(du + warp);
+        float det = fbm(np*vec2(1.9,1.4) + vec2(0.0,-rise*0.7));
+        d.r *= mix(0.35, 1.5, det);
+        d.r *= smoothstep(0.02, 0.18, d.r*0.6 + det*0.08);
+        return d; }
       void main(){
-        if(uv.y >= uHz){ vec2 du = vec2(uv.x, (uv.y-uHz)/(1.0-uHz)); o = vec4(fire(bd(du)),1.0); return; }
+        if(uv.y >= uHz){ vec2 du = vec2(uv.x, (uv.y-uHz)/(1.0-uHz)); o = vec4(fire(flame(du)),1.0); return; }
         vec2 wu = vec2(uv.x, uv.y/uHz);
         float L=texture(uW,wu-vec2(uWTx.x,0)).r, R=texture(uW,wu+vec2(uWTx.x,0)).r, B=texture(uW,wu-vec2(0,uWTx.y)).r, T=texture(uW,wu+vec2(0,uWTx.y)).r;
         vec2 g = vec2(R-L, T-B);
@@ -433,11 +452,11 @@ window.HeroGPU = function(hero, onFps){
   function alloc(){
     const r = hero.getBoundingClientRect(), skyH = r.height*(1-hz);
     asp = r.width/Math.max(1,skyH);
-    SH = 112; SW = Math.max(40, Math.round(SH*asp));
+    SH = 160; SW = Math.max(40, Math.round(SH*asp));
     WH = 64;  WW = Math.max(40, Math.round(WH*r.width/Math.max(1,r.height*hz)));
-    vel=dbl(SW,SH); dye=dbl(SW*2,SH*2); prs=dbl(SW,SH); dvg=tex(SW,SH); crl=tex(SW,SH); wav=dbl(WW,WH);
+    vel=dbl(SW,SH); dye=dbl(SW*3,SH*3); prs=dbl(SW,SH); dvg=tex(SW,SH); crl=tex(SW,SH); wav=dbl(WW,WH);
   }
-  function size(){ const r=hero.getBoundingClientRect(), dpr=Math.min(1.5,devicePixelRatio||1); const w=Math.max(1,r.width*dpr|0), h=Math.max(1,r.height*dpr|0); if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; return true; } return false; }
+  function size(){ const r=hero.getBoundingClientRect(), dpr=Math.min(1.75,devicePixelRatio||1); const w=Math.max(1,r.width*dpr|0), h=Math.max(1,r.height*dpr|0); if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; return true; } return false; }
 
   function run(name, target, set){ const pr=P[name]; gl.useProgram(pr.p); let unit=0;
     for(const k in set){ const v=set[k], loc=pr.u[k]; if(loc==null) continue;
@@ -453,7 +472,7 @@ window.HeroGPU = function(hero, onFps){
   function step(){
     t += .016;
     const em = new Float32Array(16);
-    for(let k=0;k<3;k++){ em[k*4]=.5+.32*Math.sin(t*.45+k*2.1); em[k*4+1]=.025; em[k*4+2]=.0009; em[k*4+3]=1; }
+    for(let k=0;k<3;k++){ em[k*4]=.5+.36*Math.sin(t*.45+k*2.1); em[k*4+1]=.025; em[k*4+2]=.0007; em[k*4+3]=1; }
     if(poke && poke.fire){ em[12]=poke.x; em[13]=poke.y; em[14]=.0012; em[15]=.8; }
     run('forces', vel.w, {uVel:vel.r, uDye:dye.r, uEm:em, uAsp:asp, uT:t, uBuoy:.018}); vel.swap();
     run('curl', crl, {uVel:vel.r, uTx:[1/SW,1/SH]});
@@ -461,7 +480,7 @@ window.HeroGPU = function(hero, onFps){
     run('emit', dye.w, {uDye:dye.r, uEm:em, uAsp:asp, uT:t}); dye.swap();
     run('advect', vel.w, {uVel:vel.r, uSrc:vel.r, uTx:[1/SW,1/SH], uDiss:1, uDiss2:1}); vel.swap();
     run('div', dvg, {uVel:vel.r});
-    for(let i=0;i<16;i++){ run('jacobi', prs.w, {uP:prs.r, uDiv:dvg, uTx:[1/SW,1/SH]}); prs.swap(); }
+    for(let i=0;i<20;i++){ run('jacobi', prs.w, {uP:prs.r, uDiv:dvg, uTx:[1/SW,1/SH]}); prs.swap(); }
     run('grad', vel.w, {uP:prs.r, uVel:vel.r, uTx:[1/SW,1/SH]}); vel.swap();
     run('advect', dye.w, {uVel:vel.r, uSrc:dye.r, uTx:[1/SW,1/SH], uDiss:.952, uDiss2:.968}); dye.swap();
     // water
@@ -470,11 +489,11 @@ window.HeroGPU = function(hero, onFps){
     else if(dropTimer<=0){ dropTimer = 6 + (Math.random()*10|0); d=[Math.random(), .1+Math.random()*.8, .0006, .9]; }
     for(let k=0;k<2;k++){ run('wave', wav.w, {uW:wav.r, uTx:[1/WW,1/WH], uDrop:k? [0,0,.001,0] : d, uAsp:WW/WH}); wav.swap(); }
   }
-  function show(){ size(); run('show', null, {uDye:dye.r, uW:wav.r, uHz:hz, uWTx:[1/WW,1/WH], uDTx:[1/(SW*2),1/(SH*2)]}); }
+  function show(){ size(); run('show', null, {uDye:dye.r, uW:wav.r, uHz:hz, uWTx:[1/WW,1/WH], uDTx:[1/(SW*3),1/(SH*3)], uT:t, uAsp:asp}); }
 
   alloc(); size();
   gl.bindFramebuffer(gl.FRAMEBUFFER, vel.r.f); if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE) return false;
-  for(let k=0;k<110;k++) step();
+  for(let k=0;k<200;k++) step();
   show();
 
   // taps: heat the fire above the horizon, ripple the water below it
